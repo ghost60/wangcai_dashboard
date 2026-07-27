@@ -1,0 +1,16 @@
+{
+  "name": "wangcai-live-dashboard",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Wangcai real-time dashboard for Binance master and sub-account equity.",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "playwright": "^1.61.1"
+  }
+}

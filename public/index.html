@@ -1,0 +1,870 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>旺财实时看板</title>
+    <link rel="icon" type="image/png" href="/assets/wangcai/idle.png" />
+    <link rel="stylesheet" href="/styles.css?v=20260707-no-compact-mode" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div class="brandBlock">
+          <img class="brandLogo" src="/assets/wangcai/idle.png" alt="" aria-hidden="true" />
+          <div>
+            <p class="eyebrow">Wangcai Live Dashboard</p>
+            <h1>旺财实时看板</h1>
+          </div>
+        </div>
+        <div class="actions">
+          <span id="statusText" class="status">初始化</span>
+          <button id="shareButton" class="button secondary" type="button" aria-label="生成晒单图">
+            <span aria-hidden="true">▣</span>
+            晒单
+          </button>
+          <button id="snapshotButton" class="button secondary" type="button" aria-label="立即采样">
+            <span aria-hidden="true">●</span>
+            采样
+          </button>
+          <button id="refreshButton" class="button" type="button" aria-label="刷新资产">
+            <span aria-hidden="true">↻</span>
+            刷新
+          </button>
+        </div>
+      </header>
+
+      <section id="setupPanel" class="notice hidden" aria-live="polite">
+        <strong>还没有配置 Binance API key。</strong>
+        在项目根目录复制 <code>.env.example</code> 为 <code>.env</code>，填入母账户 API key 和 secret 后重启服务。
+      </section>
+
+      <nav class="viewTabs" aria-label="看板视图">
+        <button class="tabButton active" type="button" data-view="overview">总览</button>
+        <button class="tabButton" type="button" data-view="manual">A股</button>
+        <button class="tabButton" type="button" data-view="positions">持仓</button>
+        <button class="tabButton" type="button" data-view="resources">资源</button>
+      </nav>
+      <div class="viewOptions" aria-label="显示选项">
+        <button id="manualToggleButton" class="optionButton" type="button" aria-pressed="false">A股记录：关闭</button>
+        <button id="quietPetToggle" class="optionButton" type="button" aria-pressed="false">安静旺财</button>
+      </div>
+
+      <div id="overviewView" class="viewStack">
+        <section class="metrics" aria-label="资产概览">
+          <article class="metric primary">
+            <span>总资产（币 + A股）</span>
+            <strong id="totalBtc">--</strong>
+            <small id="totalUsdt">--</small>
+          </article>
+          <article class="metric">
+            <span>母账户合计</span>
+            <strong id="masterBtc">--</strong>
+            <small id="masterUsdt">--</small>
+          </article>
+          <article class="metric">
+            <span>子账户合计</span>
+            <strong id="subsBtc">--</strong>
+            <small id="subsCount">--</small>
+          </article>
+          <article class="metric marketMetric">
+            <div class="marketMetricHead">
+              <span>市场报价</span>
+              <small id="updatedAt">--</small>
+            </div>
+            <div id="marketQuotes" class="marketQuotes" aria-label="主流币实时行情">
+              <div class="marketQuote empty">等待行情</div>
+            </div>
+          </article>
+        </section>
+
+        <section class="portfolioPulse" aria-label="收益状态">
+          <div class="pulseItem">
+            <span>1天收益</span>
+            <strong id="pulseOneDay">--</strong>
+          </div>
+          <div class="pulseItem">
+            <span>7天收益</span>
+            <strong id="pulseSevenDay">--</strong>
+          </div>
+          <div class="pulseItem">
+            <span>30天收益</span>
+            <strong id="pulseThirtyDay">--</strong>
+          </div>
+          <div class="pulseItem">
+            <span>全部收益</span>
+            <strong id="pulseAllDay">--</strong>
+          </div>
+          <div class="pulseItem">
+            <span>采样</span>
+            <strong id="pulseSample">--</strong>
+          </div>
+        </section>
+
+        <section class="petPanel" aria-label="收益宠物">
+          <div class="petAvatar" id="petAvatar" data-mood="calm" aria-hidden="true">
+            <div class="petSpritePreview"></div>
+          </div>
+          <div class="petCopy">
+            <div class="petTitleRow">
+              <div class="petTitleCluster">
+                <h2>旺财</h2>
+                <span id="petMoodBadge" class="badge muted">加载中</span>
+              </div>
+              <div class="petRefreshControls" aria-label="旺财刷新状态">
+                <span id="petRefreshStatus" class="petRefreshStatus loading">刷新中</span>
+                <button id="petRefreshButton" class="petRefreshButton" type="button" aria-label="刷新全页面数据">
+                  <span aria-hidden="true">↻</span>
+                  <span>刷新</span>
+                </button>
+              </div>
+            </div>
+            <p id="petMessage">正在观察今天的净值变化。</p>
+            <div class="petMeta">
+              <span id="petOneDay">1天 --</span>
+              <span id="petSevenDay">7天 --</span>
+              <span id="petThirtyDay">30天 --</span>
+              <span id="petAllDay">全部 --</span>
+              <span id="petSource">本地状态</span>
+              <span id="petLastRefresh">最近刷新 --</span>
+              <span id="petNextRefresh">下次 --</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="sectionHead">
+            <div>
+              <h2>资金曲线</h2>
+              <p>总账户、币账户和 A 股账户分开绘制；A 股按最近一次手工记录阶梯填充。</p>
+            </div>
+            <div class="chartControls">
+              <span id="performanceFreshness" class="freshnessBadge loading">收益加载中</span>
+              <label class="search compact">
+                <span>账户</span>
+                <select id="seriesSelect"></select>
+              </label>
+              <label class="search compact">
+                <span>视图</span>
+                <select id="metricSelect">
+                  <option value="returnPct">收益率</option>
+                  <option value="equityUsdt" selected>账户净值</option>
+                  <option value="nav">单位净值</option>
+                </select>
+              </label>
+              <label class="search compact rangeInput">
+                <span>天数</span>
+                <select id="chartDaysInput">
+                  <option value="7" selected>7D</option>
+                  <option value="30">30D</option>
+                  <option value="90">90D</option>
+                  <option value="365">365D</option>
+                  <option value="all">All</option>
+                </select>
+              </label>
+            </div>
+          </div>
+          <div class="aggregateCharts" aria-label="聚合资金曲线">
+            <div class="curvePanel">
+              <div class="curvePanelHead">
+                <strong>总账户</strong>
+                <span id="overallCurveScope">币账户</span>
+              </div>
+              <div class="chartWrap">
+                <div id="overallEquityChart" class="chart aggregateChart" role="img" aria-label="总账户资金曲线"></div>
+                <div class="chartTooltip hidden"></div>
+              </div>
+            </div>
+            <div class="curvePanel">
+              <div class="curvePanelHead">
+                <strong>币账户</strong>
+                <span>Binance 母账户 + 子账户</span>
+              </div>
+              <div class="chartWrap">
+                <div id="cryptoEquityChart" class="chart aggregateChart" role="img" aria-label="币账户资金曲线"></div>
+                <div class="chartTooltip hidden"></div>
+              </div>
+            </div>
+            <div class="curvePanel">
+              <div class="curvePanelHead">
+                <strong>A股账户</strong>
+                <span>按最近记录向后沿用</span>
+              </div>
+              <div class="chartWrap">
+                <div id="manualEquityChart" class="chart aggregateChart" role="img" aria-label="A股账户资金曲线"></div>
+                <div class="chartTooltip hidden"></div>
+              </div>
+            </div>
+          </div>
+          <div class="sectionHead detailChartHead">
+            <div>
+              <h2>账户明细曲线</h2>
+              <p>可切换单账户或勾选 Tag 对比。</p>
+            </div>
+          </div>
+          <div class="chartWrap">
+            <div id="equityChart" class="chart" role="img" aria-label="资金曲线"></div>
+            <div id="chartTooltip" class="chartTooltip hidden"></div>
+          </div>
+          <div id="tagSeriesControls" class="tagSeriesControls" aria-label="Tag 资金曲线选择"></div>
+        </section>
+
+        <section class="panel">
+          <div class="sectionHead">
+            <div>
+              <h2>交易额</h2>
+              <p>来自 Binance 最近 30 天子账户成交统计，仅统计实际成交，不包含挂单后撤单；优先使用官方 BUSD 成交额口径，无 BUSD 字段时才用 BTC 口径按 BTCUSDT 折算。</p>
+            </div>
+            <div class="chartControls">
+              <span id="tradingFreshness" class="freshnessBadge loading">交易额加载中</span>
+              <label class="search compact">
+                <span>账户</span>
+                <select id="tradingSeriesSelect"></select>
+              </label>
+            </div>
+          </div>
+          <div class="tradingStatsGrid">
+            <div class="chartWrap">
+              <div id="tradingVolumeChart" class="chart compactChart" role="img" aria-label="交易额曲线"></div>
+              <div id="tradingChartTooltip" class="chartTooltip hidden"></div>
+            </div>
+            <div class="tableWrap tradingActivityWrap">
+              <table class="tradingActivityTable">
+                <thead>
+                  <tr>
+                    <th>账户</th>
+                    <th class="num">30天交易额</th>
+                    <th>最后交易</th>
+                  </tr>
+                </thead>
+                <tbody id="tradingActivityTable">
+                  <tr>
+                    <td colspan="3" class="empty">等待加载</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div class="miniStats tradingStatsMeta">
+            <span id="tradingVolumeStat">--</span>
+            <span id="tradingActiveStat">--</span>
+            <span id="tradingCoverageStat">--</span>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="sectionHead">
+            <div>
+              <h2>收益统计</h2>
+              <p>1 天、7 天、30 天和全部收益率基于单位净值；盈亏金额为区间净值变化，仅作估算。</p>
+            </div>
+            <div class="miniStats">
+              <span id="snapshotStat">--</span>
+              <span id="transferStat">--</span>
+            </div>
+          </div>
+          <div class="tableWrap">
+            <table class="performanceTable">
+              <thead>
+                <tr>
+                  <th>账户</th>
+                  <th class="num">当前净值</th>
+                  <th class="num">单位净值</th>
+                  <th class="num">历史最低余额</th>
+                  <th class="num">历史最高余额</th>
+                  <th class="num">1天收益</th>
+                  <th class="num">1天盈亏</th>
+                  <th class="num">7天收益</th>
+                  <th class="num">7天盈亏</th>
+                  <th class="num">30天收益</th>
+                  <th class="num">30天盈亏</th>
+                  <th class="num">全部收益</th>
+                  <th class="num">全部盈亏</th>
+                </tr>
+              </thead>
+              <tbody id="performanceTable">
+                <tr>
+                  <td colspan="13" class="empty">等待采样</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="sectionHead">
+            <div>
+              <h2>资产分布</h2>
+              <p>按 BTC 估值排序，展示占比最高的账户。</p>
+            </div>
+            <div class="miniStats">
+              <span id="nonZeroStat">--</span>
+              <span id="summarySource">Official API</span>
+            </div>
+          </div>
+          <div id="bars" class="bars" aria-label="账户资产分布"></div>
+        </section>
+
+        <section class="panel">
+          <div class="sectionHead tableHead">
+            <div>
+              <h2>子账户明细</h2>
+              <p>来自母账户 API，自动合并 Spot、Margin、USD-M Futures、COIN-M Futures。</p>
+            </div>
+            <label class="search">
+              <span>搜索</span>
+              <input id="accountSearch" type="search" placeholder="email / remark" />
+            </label>
+          </div>
+          <div class="tableWrap">
+            <table>
+              <thead>
+                <tr>
+	                  <th>账户</th>
+	                  <th>备注</th>
+	                  <th>模式</th>
+	                  <th>Tag</th>
+	                  <th>状态</th>
+	                  <th class="num">Spot</th>
+	                  <th class="num">Margin</th>
+                  <th class="num">Futures</th>
+                  <th class="num">合计 BTC</th>
+                  <th class="num">USDT 估值</th>
+                  <th class="num">占比</th>
+                </tr>
+              </thead>
+	              <tbody id="accountsTable">
+	                <tr>
+	                  <td colspan="11" class="empty">加载中</td>
+	                </tr>
+	              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="apiNotes">
+          <h2>接口与口径</h2>
+          <ul>
+            <li>官方 API 可稳定覆盖 Spot、Margin、USD-M Futures、COIN-M Futures；本看板已合并这些口径。</li>
+            <li>Alpha 活动页的“资产/积分”统计属于网页/App 登录态内部口径，目前没有公开 API-key 接口。</li>
+            <li>Earn、Funding、Launchpool、Alpha 私有活动口径如果也要纳入，需要额外确认对应接口或抓包验证。</li>
+          </ul>
+          <div id="coverageList" class="coverage" aria-label="数据源状态"></div>
+        </section>
+      </div>
+
+      <div id="manualView" class="viewStack hidden">
+        <section id="manualDisabledState" class="panel manualDisabledState hidden">
+          <div>
+            <h2>A 股账户记录未开启</h2>
+            <p>开启后需要手工录入每个股票账户的净值；这些记录会单独进入 A 股曲线，并按现金流方式消除对总账户收益的扰动。</p>
+          </div>
+          <button id="manualEnableButton" class="button" type="button">开启 A 股账户记录</button>
+        </section>
+
+        <section id="manualLedgerPanel" class="panel manualPanel">
+          <div class="sectionHead">
+            <div>
+              <h2>A 股手工账</h2>
+              <p>保存账户净值即可；未记录的后续日期会默认沿用上一条记录。</p>
+            </div>
+            <div class="miniStats">
+              <span id="manualAccountStat">--</span>
+              <span id="manualAccountUpdatedAt">--</span>
+              <button id="manualDisableButton" class="miniButton" type="button">关闭记录</button>
+            </div>
+          </div>
+          <div class="manualLedgerGrid">
+            <form id="manualAccountForm" class="manualEntryForm">
+              <div class="manualFormHead">
+                <strong>录入净值</strong>
+                <span id="manualEditHint">新账户会自动创建</span>
+              </div>
+              <div class="manualFieldGrid">
+                <label class="search">
+                  <span>记录日期</span>
+                  <input id="manualAccountDate" name="date" type="date" required />
+                </label>
+                <label class="search">
+                  <span>账户名称</span>
+                  <input id="manualAccountLabel" name="label" type="text" autocomplete="off" placeholder="华泰普通户" required />
+                </label>
+                <label class="search">
+                  <span>当前净值 CNY</span>
+                  <input id="manualAccountEquity" name="equityCny" type="number" min="0" step="0.01" inputmode="decimal" placeholder="123456.78" required />
+                </label>
+                <label class="search">
+                  <span>出入金 CNY</span>
+                  <input id="manualAccountCashFlow" name="cashFlowCny" type="number" step="0.01" inputmode="decimal" placeholder="正数转入，负数转出" />
+                </label>
+                <label class="search">
+                  <span>券商</span>
+                  <input id="manualAccountBroker" name="broker" type="text" autocomplete="off" placeholder="可选" />
+                </label>
+                <label class="search">
+                  <span>Tag</span>
+                  <input id="manualAccountTags" name="tags" type="text" autocomplete="off" placeholder="A股, 长线" />
+                </label>
+              </div>
+              <div class="manualFormActions">
+                <button id="manualAccountSaveButton" class="button" type="submit">保存记录</button>
+                <button id="manualAccountResetButton" class="button secondary" type="button">清空</button>
+              </div>
+            </form>
+            <div class="manualLedgerBook">
+              <div class="manualFormHead">
+                <strong>账户簿</strong>
+                <span>点击编辑可继续录入或补录</span>
+              </div>
+              <div id="manualAccountsTable" class="manualAccountList">
+                <div class="empty">暂无手工账户</div>
+              </div>
+            </div>
+          </div>
+          <div class="manualEntries">
+            <div class="manualFormHead">
+              <strong>最近记录</strong>
+              <span>资金曲线按最近记录阶梯填充</span>
+            </div>
+            <div id="manualEntriesList" class="manualEntriesList">
+              <div class="empty">暂无手工记录</div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <div id="positionsView" class="viewStack hidden">
+        <section class="metrics positionsMetrics" aria-label="持仓概览">
+          <article class="metric primary">
+            <span>子账户资产持仓估值</span>
+            <strong id="positionsTotalValue">--</strong>
+            <small id="positionsUpdatedAt">--</small>
+          </article>
+          <article class="metric">
+            <span>子账户</span>
+            <strong id="positionsAccountCount">--</strong>
+            <small id="positionsAccountHealth">--</small>
+          </article>
+          <article class="metric">
+            <span>资产行</span>
+            <strong id="positionsAssetCount">--</strong>
+            <small id="positionsDustStat">--</small>
+          </article>
+          <article class="metric">
+            <span>合约仓位</span>
+            <strong id="positionsContractCount">--</strong>
+            <small id="positionsOpenNotional">--</small>
+          </article>
+        </section>
+
+        <section class="panel">
+          <div class="sectionHead tableHead">
+            <div>
+              <h2>账户持仓概览</h2>
+              <p>Spot、Margin、USD-M Futures、COIN-M Futures 实时拉取后按子账户汇总。</p>
+            </div>
+            <div class="miniStats">
+              <span id="positionsSourceStat">--</span>
+              <span id="positionsRowStat">--</span>
+            </div>
+          </div>
+          <div class="tableWrap">
+            <table class="positionsAccountTable">
+              <thead>
+                <tr>
+                  <th>账户</th>
+                  <th>模式</th>
+                  <th>状态</th>
+                  <th>最后交易</th>
+                  <th class="num">Spot</th>
+                  <th class="num">Margin</th>
+                  <th class="num">Futures</th>
+                  <th class="num">资产估值</th>
+                  <th class="num">合约数</th>
+                  <th class="num">名义价值</th>
+                  <th class="num">未实现 PnL</th>
+                  <th class="num">PnL%</th>
+                </tr>
+              </thead>
+              <tbody id="positionsAccountTable">
+                <tr>
+                  <td colspan="12" class="empty">等待加载</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="sectionHead">
+            <div>
+              <h2>Top 持仓分布</h2>
+              <p>按币种汇总所有账户的资产余额和合约净敞口；点击币种查看 1h K 线、综合成本和账户拆分。</p>
+            </div>
+            <div class="miniStats">
+              <span id="positionsExposureStat">--</span>
+            </div>
+          </div>
+          <div class="chartWrap">
+            <div id="positionsExposureChart" class="chart exposureChart" role="img" aria-label="Top 持仓分布"></div>
+            <div id="positionsExposureTooltip" class="chartTooltip hidden"></div>
+          </div>
+        </section>
+
+        <section id="positionPnlPanel" class="panel positionPnlPanel">
+          <div class="sectionHead tableHead">
+            <div>
+              <h2>过去 X 小时盈亏 Top10</h2>
+              <p>按当前持仓数量和 1h K 线估算窗口收益，帮助定位最近哪些币贡献最多、拖累最多。</p>
+            </div>
+            <div class="miniStats">
+              <label class="positionKlineDaysControl positionPnlHoursControl">
+                <span>小时</span>
+                <input id="positionPnlHoursInput" type="number" min="1" max="720" step="1" value="24" />
+              </label>
+              <button id="positionPnlRefresh" class="miniButton" type="button">刷新</button>
+              <span id="positionPnlStatus">等待加载</span>
+            </div>
+          </div>
+          <div class="positionPnlGrid">
+            <div class="positionPnlColumn">
+              <div class="positionPnlColumnHead">
+                <strong>赚钱最多</strong>
+                <span id="positionPnlWinnersStat">--</span>
+              </div>
+              <div id="positionPnlWinners" class="positionPnlList"></div>
+            </div>
+            <div class="positionPnlColumn">
+              <div class="positionPnlColumnHead">
+                <strong>亏钱最多</strong>
+                <span id="positionPnlLosersStat">--</span>
+              </div>
+              <div id="positionPnlLosers" class="positionPnlList"></div>
+            </div>
+          </div>
+        </section>
+
+        <section id="positionDetailPanel" class="panel positionDetailPanel hidden">
+          <div class="sectionHead tableHead">
+            <div>
+              <h2 id="positionDetailTitle">币种详情</h2>
+              <p id="positionDetailSubtitle">点击 Top 持仓分布或持仓明细里的币种后加载。</p>
+            </div>
+            <div class="miniStats">
+              <label class="positionKlineDaysControl">
+                <span>天数</span>
+                <input id="positionKlineDaysInput" type="number" min="1" max="365" step="1" value="7" />
+              </label>
+              <button id="positionKlineReload" class="miniButton" type="button">刷新</button>
+              <button id="positionKlineResetRange" class="miniButton" type="button">重置范围</button>
+              <span id="positionDetailCoverage">--</span>
+              <button id="positionDetailClose" class="miniButton" type="button">收起</button>
+            </div>
+          </div>
+          <div id="positionDetailMetrics" class="positionDetailMetrics"></div>
+          <div class="positionDetailGrid">
+            <div class="positionChartBlock">
+              <div class="chartWrap positionKlineWrap">
+                <div id="positionKlineChart" class="chart positionKlineChart" role="img" aria-label="持仓币种 1h K 线"></div>
+                <div id="positionKlineTooltip" class="chartTooltip positionKlineTooltip hidden"></div>
+              </div>
+              <div id="positionTradeLegend" class="positionTradeLegend"></div>
+            </div>
+            <div class="positionDetailSide">
+              <div class="manualFormHead">
+                <strong>账户拆分</strong>
+                <span id="positionDetailAccountStat">--</span>
+              </div>
+              <div id="positionDetailAccounts" class="positionDetailAccounts"></div>
+            </div>
+          </div>
+          <div class="tableWrap positionDetailRowsWrap">
+            <table class="positionDetailRows">
+              <thead>
+                <tr>
+                  <th>账户</th>
+                  <th>市场</th>
+                  <th>标的</th>
+                  <th class="num">数量</th>
+                  <th class="num">成本</th>
+                  <th class="num">现价</th>
+                  <th class="num">未实现 PnL</th>
+                  <th class="num">估值/名义</th>
+                </tr>
+              </thead>
+              <tbody id="positionDetailRows">
+                <tr>
+                  <td colspan="8" class="empty">等待选择币种</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="sectionHead tableHead">
+            <div>
+              <h2>持仓明细</h2>
+              <p>资产行按 USDT 估值排序，合约行按名义价值排序。</p>
+            </div>
+            <div class="positionFilters">
+              <label class="search compact">
+                <span>搜索</span>
+                <input id="positionsSearch" type="search" placeholder="account / asset / symbol" />
+              </label>
+              <label class="search compact">
+                <span>市场</span>
+                <select id="positionsVenueFilter">
+                  <option value="all">全部</option>
+                  <option value="Spot">Spot</option>
+                  <option value="Margin">Margin</option>
+                  <option value="USD-M Futures">USD-M Futures</option>
+                  <option value="COIN-M Futures">COIN-M Futures</option>
+                </select>
+              </label>
+              <label class="search compact">
+                <span>类型</span>
+                <select id="positionsKindFilter">
+                  <option value="all">全部</option>
+                  <option value="asset">资产</option>
+                  <option value="contract">合约</option>
+                </select>
+              </label>
+              <label class="search compact">
+                <span>最小估值</span>
+                <select id="positionsMinValueFilter">
+                  <option value="0">全部</option>
+                  <option value="0.01" selected>$0.01</option>
+                  <option value="1">$1</option>
+                  <option value="10">$10</option>
+                </select>
+              </label>
+              <label class="search compact">
+                <span>排序</span>
+                <select id="positionsSortSelect">
+                  <option value="valueDesc">估值从高到低</option>
+                  <option value="valueAsc">估值从低到高</option>
+                  <option value="pnlDesc">盈利最多</option>
+                  <option value="pnlAsc">亏损最多</option>
+                  <option value="absPnlDesc">PnL 绝对值</option>
+                  <option value="pnlPctDesc">收益率最高</option>
+                  <option value="pnlPctAsc">收益率最低</option>
+                </select>
+              </label>
+            </div>
+          </div>
+          <div class="tableWrap">
+            <table class="positionsTable">
+              <thead>
+                <tr>
+                  <th>账户</th>
+                  <th>模式</th>
+                  <th>市场</th>
+                  <th>资产 / 合约</th>
+                  <th class="num">数量</th>
+                  <th class="num">可用 / 锁定</th>
+                  <th class="num">成本价</th>
+                  <th class="num">最新价</th>
+                  <th class="num">未实现 PnL</th>
+                  <th class="num">PnL%</th>
+                  <th class="num">USDT 估值</th>
+                </tr>
+              </thead>
+              <tbody id="positionsTable">
+                <tr>
+                  <td colspan="11" class="empty">等待加载</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="apiNotes">
+          <h2>持仓数据源</h2>
+          <div id="positionsCoverageList" class="coverage" aria-label="持仓数据源状态"></div>
+        </section>
+      </div>
+
+      <div id="resourcesView" class="viewStack hidden">
+        <section class="metrics resourcesMetrics" aria-label="资源概览">
+          <article class="metric primary">
+            <span>进程内存 RSS</span>
+            <strong id="resourceRss">--</strong>
+            <small id="resourceUptime">--</small>
+          </article>
+          <article class="metric">
+            <span>CPU</span>
+            <strong id="resourceCpu">--</strong>
+            <small id="resourceLoad">--</small>
+          </article>
+          <article class="metric">
+            <span>数据目录</span>
+            <strong id="resourceDataSize">--</strong>
+            <small id="resourceDataCount">--</small>
+          </article>
+          <article class="metric">
+            <span>网络速率</span>
+            <strong id="resourceNetworkRate">--</strong>
+            <small id="resourceNetworkTotal">--</small>
+          </article>
+        </section>
+
+        <section class="panel">
+          <div class="sectionHead">
+            <div>
+              <h2>运行状态</h2>
+              <p>本机 Node 进程、缓存、采样任务和系统内存指标，每 5 秒刷新一次。</p>
+            </div>
+            <div class="miniStats">
+              <span id="resourceGeneratedAt">--</span>
+              <span id="resourcePid">--</span>
+            </div>
+          </div>
+          <div id="resourceStatusGrid" class="resourceGrid"></div>
+        </section>
+
+        <section class="panel">
+          <div class="sectionHead">
+            <div>
+              <h2>数据文件</h2>
+              <p>历史快照、转账流水、元数据和备份文件的大小与更新时间。</p>
+            </div>
+            <div class="miniStats">
+              <span id="resourceStoreStat">--</span>
+            </div>
+          </div>
+          <div class="tableWrap">
+            <table class="resourceTable">
+              <thead>
+                <tr>
+                  <th>文件</th>
+                  <th class="num">大小</th>
+                  <th>更新时间</th>
+                </tr>
+              </thead>
+              <tbody id="resourceFilesTable">
+                <tr>
+                  <td colspan="3" class="empty">等待加载</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="sectionHead">
+            <div>
+              <h2>HTTP 与网络</h2>
+              <p>应用收到的请求量、响应体大小，以及主机网卡 RX/TX 计数。</p>
+            </div>
+            <div class="miniStats">
+              <span id="resourceRequestStat">--</span>
+              <span id="resourceByteStat">--</span>
+            </div>
+          </div>
+          <div class="resourceSplit">
+            <div class="tableWrap">
+              <table class="resourceTable">
+                <thead>
+                  <tr>
+                    <th>路径</th>
+                    <th class="num">请求</th>
+                    <th class="num">错误</th>
+                    <th class="num">平均耗时</th>
+                    <th class="num">输出</th>
+                  </tr>
+                </thead>
+                <tbody id="resourceRequestsTable">
+                  <tr>
+                    <td colspan="5" class="empty">等待加载</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="tableWrap">
+              <table class="resourceTable">
+                <thead>
+                  <tr>
+                    <th>网卡</th>
+                    <th class="num">RX</th>
+                    <th class="num">TX</th>
+                  </tr>
+                </thead>
+                <tbody id="resourceNetworkTable">
+                  <tr>
+                    <td colspan="3" class="empty">等待加载</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <div id="wangcaiPet" class="wangcaiPet" data-mood="calm" aria-hidden="true">
+      <div id="wangcaiBubble" class="wangcaiBubble"></div>
+      <div id="wangcaiMenu" class="wangcaiMenu" role="menu" aria-label="旺财互动菜单">
+        <button type="button" data-wangcai-command="pet" role="menuitem">摸头</button>
+        <button type="button" data-wangcai-command="feed" role="menuitem">投喂</button>
+        <button type="button" data-wangcai-command="work" role="menuitem">巡逻</button>
+        <button type="button" data-wangcai-command="sleep" role="menuitem">睡觉</button>
+        <button type="button" data-wangcai-command="hide" role="menuitem">隐藏</button>
+      </div>
+      <img id="wangcaiPetImage" alt="" src="/assets/wangcai/idle.png" draggable="false" />
+    </div>
+    <button id="wangcaiRecall" class="wangcaiRecall hidden" type="button" aria-label="召回旺财">旺财</button>
+
+    <div id="shareModal" class="modalOverlay hidden" role="dialog" aria-modal="true" aria-labelledby="shareModalTitle">
+      <section class="modalPanel sharePanel">
+        <div class="modalHead">
+          <div>
+            <h2 id="shareModalTitle">生成晒单图</h2>
+            <p>选择账户或 Tag，生成带资金曲线、收益指标和旺财点评的图片。</p>
+          </div>
+          <button id="shareCloseButton" class="iconButton" type="button" aria-label="关闭">×</button>
+        </div>
+        <div class="shareControls">
+          <label class="search compact">
+            <span>账户 / Tag</span>
+            <select id="shareSeriesSelect"></select>
+          </label>
+          <label class="search compact">
+            <span>晒单天数</span>
+            <input id="shareDaysInput" type="number" min="1" max="3650" step="1" value="30" />
+          </label>
+          <label class="shareNameToggle">
+            <input id="shareShowNameInput" type="checkbox" />
+            <span>展示名称</span>
+          </label>
+          <label class="shareNameToggle">
+            <input id="shareShowAmountInput" type="checkbox" />
+            <span>展示金额</span>
+          </label>
+          <button id="shareGenerateButton" class="button" type="button">生成图片</button>
+          <a id="shareDownloadLink" class="button secondary disabledLink" href="#" download="wangcai-share.png" aria-disabled="true">下载 PNG</a>
+        </div>
+        <div id="shareStatus" class="shareStatus">等待生成</div>
+        <div class="sharePreviewWrap">
+          <canvas id="shareCanvas" width="2560" height="1440"></canvas>
+        </div>
+      </section>
+    </div>
+    <div id="manualEnableModal" class="modalOverlay hidden" role="dialog" aria-modal="true" aria-labelledby="manualEnableTitle">
+      <section class="modalPanel confirmPanel">
+        <div class="modalHead">
+          <div>
+            <h2 id="manualEnableTitle">开启 A 股账户记录</h2>
+            <p>这里不会自动同步券商账户。开启后需要手工录入每个 A 股账户的净值；漏记时系统会沿用最近一次记录填充历史。</p>
+          </div>
+          <button id="manualEnableCancelTop" class="iconButton" type="button" aria-label="关闭">×</button>
+        </div>
+        <div class="confirmActions">
+          <button id="manualEnableConfirm" class="button" type="button">确认开启</button>
+          <button id="manualEnableCancel" class="button secondary" type="button">取消</button>
+        </div>
+      </section>
+    </div>
+    <script src="/app.js?v=20260707-no-compact-mode"></script>
+  </body>
+</html>
