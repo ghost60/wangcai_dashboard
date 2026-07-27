@@ -6850,7 +6850,7 @@ const server = http.createServer(async (req, res) => {
   return serveStatic(req, res, pathname);
 });
 
-server.listen(config.port, () => {
+server.listen(config.port, "0.0.0.0", () => {
   console.log(`旺财实时看板: http://localhost:${config.port}`);
   startSnapshotScheduler();
 });
