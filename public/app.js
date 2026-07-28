@@ -24,6 +24,8 @@ const state = {
   positionPnlError: "",
   positionPnlHours: 24,
   chartDays: 7,
+  chartDateFrom: "",
+  chartDateTo: "",
   dashboardRefreshLoading: false,
   dashboardRefreshError: "",
   petLoading: false,
@@ -95,6 +97,8 @@ const els = {
   seriesSelect: document.querySelector("#seriesSelect"),
   metricSelect: document.querySelector("#metricSelect"),
   chartDaysInput: document.querySelector("#chartDaysInput"),
+  chartDateFrom: document.querySelector("#chartDateFrom"),
+  chartDateTo: document.querySelector("#chartDateTo"),
   tagSeriesControls: document.querySelector("#tagSeriesControls"),
   equityChart: document.querySelector("#equityChart"),
   overallEquityChart: document.querySelector("#overallEquityChart"),
@@ -538,8 +542,27 @@ els.metricSelect.addEventListener("change", renderChart);
 els.chartDaysInput.addEventListener("change", (event) => {
   state.chartDays = normalizeChartDays(event.target.value);
   event.target.value = chartDaysInputValue(state.chartDays);
+  clearChartDateRange();
   loadPerformance({ days: state.chartDays });
 });
+if (els.chartDateFrom) {
+  els.chartDateFrom.addEventListener("change", () => {
+    state.chartDateFrom = els.chartDateFrom.value;
+    if (state.chartDateFrom && state.chartDateTo) {
+      els.chartDaysInput.value = "all";
+      loadPerformance();
+    }
+  });
+}
+if (els.chartDateTo) {
+  els.chartDateTo.addEventListener("change", () => {
+    state.chartDateTo = els.chartDateTo.value;
+    if (state.chartDateFrom && state.chartDateTo) {
+      els.chartDaysInput.value = "all";
+      loadPerformance();
+    }
+  });
+}
 els.tradingSeriesSelect.addEventListener("change", renderTradingStats);
 els.tagSeriesControls.addEventListener("change", (event) => {
   if (!event.target.matches("[data-tag-series]")) return;
@@ -773,12 +796,18 @@ async function loadPerformance(options = {}) {
     els.equityChart.innerHTML = '<div class="chartEmpty">正在加载资金曲线</div>';
   }
   try {
-    const days = normalizeChartDays(options.days ?? state.chartDays ?? 7);
+    const from = options.dateFrom ?? state.chartDateFrom;
+    const to = options.dateTo ?? state.chartDateTo;
+    const useDateRange = from && to;
     const params = new URLSearchParams();
-    if (isAllChartDays(days) || options.full) {
+    if (useDateRange) {
+      params.set("startTime", String(new Date(from + "T00:00:00").getTime()));
+      params.set("endTime", String(new Date(to + "T23:59:59").getTime()));
+    } else if (isAllChartDays(options.days ?? state.chartDays) || options.full) {
       params.set("full", "1");
       params.set("maxPoints", "0");
     } else {
+      const days = normalizeChartDays(options.days ?? state.chartDays ?? 7);
       params.set("days", String(days));
       if (options.maxPoints !== undefined) params.set("maxPoints", String(options.maxPoints));
     }
@@ -1156,7 +1185,10 @@ async function captureSnapshot() {
     ]);
   } catch (error) {
     els.statusText.textContent = "采样失败";
-    alert(error.message || "采样失败");
+    const detailText = error.details
+      ? `\n\n调试信息:\n总资产USDT: ${error.details.totalUsdt ?? "?"}\nentity合计: ${error.details.entitySum ?? "?"}\n差值: ${error.details.difference ?? "?"}`
+      : "";
+    alert((error.message || "采样失败") + detailText);
   } finally {
     els.snapshotButton.disabled = false;
   }
@@ -4528,7 +4560,21 @@ function chartDaysInputValue(value) {
 }
 
 function chartRangeLabel(value = state.chartDays) {
+  if (state.chartDateFrom && state.chartDateTo) {
+    return `${state.chartDateFrom} → ${state.chartDateTo}`;
+  }
   return isAllChartDays(value) ? "All" : `${normalizeChartDays(value)}D`;
+}
+
+function clearChartDateRange() {
+  state.chartDateFrom = "";
+  state.chartDateTo = "";
+  if (els.chartDateFrom) els.chartDateFrom.value = "";
+  if (els.chartDateTo) els.chartDateTo.value = "";
+}
+
+function hasChartDateRange() {
+  return Boolean(state.chartDateFrom && state.chartDateTo);
 }
 
 function normalizePositionKlineDays(value) {
@@ -4545,7 +4591,10 @@ function normalizePositionPnlHours(value) {
 
 function windowedSeries(series) {
   if (!series?.points?.length) return series;
-  const points = windowedPoints(series.points, state.chartDays);
+  const isDateRange = state.chartDateFrom && state.chartDateTo;
+  const points = isDateRange
+    ? windowedPointsByDateRange(series.points, state.chartDateFrom, state.chartDateTo)
+    : windowedPoints(series.points, state.chartDays);
   if (!points.length) return { ...series, points: [] };
   return {
     ...series,
@@ -4562,6 +4611,17 @@ function windowedPoints(points, days) {
   if (!Number.isFinite(latestTime)) return points;
   const cutoff = latestTime - normalizeChartDays(days) * 24 * 60 * 60 * 1000;
   const filtered = points.filter((point) => Date.parse(point.timestamp) >= cutoff);
+  return filtered.length >= 2 ? filtered : points.slice(-Math.min(points.length, 2));
+}
+
+function windowedPointsByDateRange(points, dateFrom, dateTo) {
+  if (!points?.length) return [];
+  const startMs = new Date(dateFrom + "T00:00:00").getTime();
+  const endMs = new Date(dateTo + "T23:59:59").getTime();
+  const filtered = points.filter((point) => {
+    const timestamp = Date.parse(point.timestamp);
+    return Number.isFinite(timestamp) && timestamp >= startMs && timestamp <= endMs;
+  });
   return filtered.length >= 2 ? filtered : points.slice(-Math.min(points.length, 2));
 }
 

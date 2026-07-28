@@ -3602,14 +3602,29 @@ function assertSnapshotQuality(summary) {
     0
   );
   const tolerance = Math.max(1, Math.abs(totalUsdt) * 0.000001);
-  if (!Number.isFinite(totalUsdt) || totalUsdt <= 0 || Math.abs(totalUsdt - entitySum) > tolerance) {
+  const diff = totalUsdt - entitySum;
+  if (!Number.isFinite(totalUsdt) || totalUsdt < 0 || Math.abs(diff) > tolerance) {
+    console.error("SNAPSHOT_TOTAL_INVALID:", JSON.stringify({
+      totalUsdt,
+      entitySum,
+      difference: diff,
+      tolerance,
+      entityCount: (summary.entities || []).length,
+      totals: summary.totals,
+      entitySample: (summary.entities || []).slice(0, 5).map((e) => ({
+        id: e.id,
+        type: e.type,
+        equityUsdt: e.equityUsdt
+      }))
+    }, null, 2));
     const error = new Error("Snapshot rejected because total equity failed consistency checks.");
     error.statusCode = 503;
     error.code = "SNAPSHOT_TOTAL_INVALID";
     error.details = {
       totalUsdt,
       entitySum,
-      difference: totalUsdt - entitySum
+      difference: diff,
+      tolerance
     };
     throw error;
   }
@@ -4643,13 +4658,14 @@ function stableStringify(value) {
   return JSON.stringify(value);
 }
 
-function performanceCacheKey({ pointDays, includeAllPoints, maxPoints, omitPoints }) {
+function performanceCacheKey({ pointDays, includeAllPoints, maxPoints, rangeStart, rangeEnd, omitPoints }) {
+  const rangePart = (rangeStart && rangeEnd) ? `range:${rangeStart}-${rangeEnd}` : "";
   return [
     performanceCacheFingerprint(),
-    includeAllPoints ? "full" : `days:${pointDays}`,
+    rangePart || (includeAllPoints ? "full" : `days:${pointDays}`),
     `max:${maxPoints || 0}`,
     omitPoints ? "omit" : "points"
-  ].join("|");
+  ].filter(Boolean).join("|");
 }
 
 function setPerformanceCache(key, data) {
@@ -4663,13 +4679,18 @@ function setPerformanceCache(key, data) {
 }
 
 function buildPerformancePayload(options = {}) {
-  const pointDays = normalizePerformanceDays(options.days ?? 7);
-  const includeAllPoints = Boolean(options.full);
+  const rangeStart = Number.isFinite(Number(options.startTime)) ? Number(options.startTime) : null;
+  const rangeEnd = Number.isFinite(Number(options.endTime)) ? Number(options.endTime) : null;
+  const useDateRange = rangeStart !== null && rangeEnd !== null && rangeStart < rangeEnd;
+  const pointDays = useDateRange ? null : normalizePerformanceDays(options.days ?? 7);
+  const includeAllPoints = Boolean(options.full) || useDateRange;
   const maxPoints = includeAllPoints ? 0 : normalizePerformanceMaxPoints(options.maxPoints ?? 420);
   const cacheKey = performanceCacheKey({
     pointDays,
     includeAllPoints,
     maxPoints,
+    rangeStart,
+    rangeEnd,
     omitPoints: Boolean(options.omitPoints)
   });
   const cached = performanceCache.get(cacheKey);
@@ -4704,6 +4725,7 @@ function buildPerformancePayload(options = {}) {
     .sort((a, b) => b.latestEquityUsdt - a.latestEquityUsdt);
   const trimPoints = (item) => {
     if (options.omitPoints) return omitSeriesPoints(item);
+    if (useDateRange) return trimSeriesByDateRange(item, rangeStart, rangeEnd, maxPoints);
     return includeAllPoints ? item : trimSeriesPoints(item, pointDays, maxPoints);
   };
 
@@ -4722,9 +4744,11 @@ function buildPerformancePayload(options = {}) {
     nextSnapshotAt: store.lastSnapshotAt
       ? new Date(Date.parse(store.lastSnapshotAt) + config.snapshotIntervalMs).toISOString()
       : null,
-    pointWindowDays: includeAllPoints ? null : pointDays,
+    pointWindowDays: useDateRange ? null : (includeAllPoints ? null : pointDays),
     pointMaxPoints: includeAllPoints ? null : maxPoints || null,
     pointsTruncated: !includeAllPoints,
+    dateRangeStart: useDateRange ? new Date(rangeStart).toISOString() : null,
+    dateRangeEnd: useDateRange ? new Date(rangeEnd).toISOString() : null,
     lastCaptureError,
     total: trimPoints(series),
     cryptoTotal: trimPoints(cryptoTotal),
@@ -4898,6 +4922,28 @@ function trimSeriesPoints(series, days, maxPoints = 420) {
   const cashFlows = (series.cashFlows || []).filter((flow) => {
     const time = Date.parse(flow.appliedAt || flow.timestamp);
     return Number.isFinite(time) && time >= startTime && time <= endTime;
+  });
+  return {
+    ...series,
+    points: nextPoints,
+    cashFlows
+  };
+}
+
+function trimSeriesByDateRange(series, startTime, endTime, maxPoints = 0) {
+  const points = series.points || [];
+  if (points.length < 2) return series;
+  const trimmedPoints = points.filter((point) => {
+    const timestamp = Date.parse(point.timestamp);
+    return Number.isFinite(timestamp) && timestamp >= startTime && timestamp <= endTime;
+  });
+  const windowPoints = trimmedPoints.length >= 2 ? trimmedPoints : points.slice(-Math.min(points.length, 2));
+  const nextPoints = maxPoints > 0 ? downsampleSeriesPoints(windowPoints, maxPoints) : windowPoints;
+  const windowStart = Date.parse(windowPoints[0]?.timestamp);
+  const windowEnd = Date.parse(windowPoints.at(-1)?.timestamp);
+  const cashFlows = (series.cashFlows || []).filter((flow) => {
+    const time = Date.parse(flow.appliedAt || flow.timestamp);
+    return Number.isFinite(time) && time >= windowStart && time <= windowEnd;
   });
   return {
     ...series,
@@ -6672,7 +6718,9 @@ async function handleApi(req, res, pathname, requestUrl) {
     const full = requestUrl.searchParams.get("full") === "1";
     const days = requestUrl.searchParams.get("days");
     const maxPoints = requestUrl.searchParams.get("maxPoints");
-    return jsonResponse(res, 200, buildPerformancePayload({ full, days, maxPoints }));
+    const startTime = requestUrl.searchParams.get("startTime");
+    const endTime = requestUrl.searchParams.get("endTime");
+    return jsonResponse(res, 200, buildPerformancePayload({ full, days, maxPoints, startTime, endTime }));
   }
 
   if (pathname === "/api/pet") {
