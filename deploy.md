@@ -66,8 +66,7 @@ PORT=
 ```bash
 cd /home/ubuntu/wangcai/wangcai_dashboard_shiqiang
 
-pm2 start "npm run start" \
---name wangcai-shiqiang
+pm2 start npm --name wangcai-shiqiang -- start
 ```
 
 查看：
