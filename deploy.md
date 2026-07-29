@@ -138,9 +138,8 @@ server {
 启用：
 
 ```bash
-sudo ln -s \
-/etc/nginx/sites-available/shiqiang.wangcai \
-/etc/nginx/sites-enabled/
+sudo ln -s /etc/nginx/sites-available/yuanlei.wangcai \
+/etc/nginx/sites-enabled/yuanlei.wangcai
 ```
 
 测试：
