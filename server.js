@@ -27,6 +27,8 @@ const config = {
   fapiBaseUrl: process.env.BINANCE_FAPI_BASE_URL || "https://fapi.binance.com",
   dapiBaseUrl: process.env.BINANCE_DAPI_BASE_URL || "https://dapi.binance.com",
   papiBaseUrl: process.env.BINANCE_PAPI_BASE_URL || process.env.BINANCE_BASE_URL || "https://api.binance.com",
+  masterUsdMFuturesEnabled: readBooleanEnv("MASTER_USDM_FUTURES_ENABLED", true),
+  masterCoinMFuturesEnabled: readBooleanEnv("MASTER_COINM_FUTURES_ENABLED", true),
   recvWindow: Number(process.env.BINANCE_RECV_WINDOW || 5000),
   signedRequestRetries: Number(process.env.BINANCE_SIGNED_REQUEST_RETRIES || 2),
   fetchTimeoutMs: Number(process.env.FETCH_TIMEOUT_MS || 15000),
@@ -123,6 +125,16 @@ function loadDotEnv() {
     }
     if (!process.env[key]) process.env[key] = value;
   }
+}
+
+function readBooleanEnv(name, fallback) {
+  const value = String(process.env[name] || "").trim().toLowerCase();
+  if (!value) return fallback;
+  if (["1", "true", "yes", "on"].includes(value)) return true;
+  if (["0", "false", "no", "off"].includes(value)) return false;
+
+  console.warn(`Ignoring invalid boolean environment variable ${name}=${value}.`);
+  return fallback;
 }
 
 function jsonResponse(res, statusCode, payload) {
@@ -1386,8 +1398,12 @@ async function buildSummary(forceRefresh = false) {
     fetchOptional("Sub-account USD-M futures summary", () => fetchFuturesSummaryPages(1)),
     fetchOptional("Sub-account COIN-M futures summary", () => fetchFuturesSummaryPages(2)),
     fetchOptional("Master margin account", fetchMasterMarginAccount),
-    fetchOptional("Master USD-M futures account", fetchMasterUsdMFuturesAccount),
-    fetchOptional("Master COIN-M futures account", fetchMasterCoinMFuturesAccount),
+    config.masterUsdMFuturesEnabled
+      ? fetchOptional("Master USD-M futures account", fetchMasterUsdMFuturesAccount)
+      : Promise.resolve({ label: "Master USD-M futures account", ok: true, data: {}, disabled: true }),
+    config.masterCoinMFuturesEnabled
+      ? fetchOptional("Master COIN-M futures account", fetchMasterCoinMFuturesAccount)
+      : Promise.resolve({ label: "Master COIN-M futures account", ok: true, data: {}, disabled: true }),
     fetchOptional("Master Portfolio Margin account", fetchMasterPortfolioMarginAccount),
     fetchOptional("Master Portfolio Margin account V2", fetchMasterPortfolioMarginAccountV2),
     fetchOptional("Master Simple Earn account", fetchMasterSimpleEarnAccount),
@@ -1615,16 +1631,34 @@ async function buildSummary(forceRefresh = false) {
         label: "Master USD-M Futures",
         ok: masterUsdMFuturesResult.ok || shouldUseMasterPortfolio,
         scope: "master",
-        endpoint: shouldUseMasterPortfolio ? "GET /papi/v1/account or /papi/v2/account" : "GET /fapi/v3/account",
-        error: shouldUseMasterPortfolio ? null : masterUsdMFuturesResult.error
+        endpoint: masterUsdMFuturesResult.disabled
+          ? "disabled by MASTER_USDM_FUTURES_ENABLED"
+          : shouldUseMasterPortfolio
+            ? "GET /papi/v1/account or /papi/v2/account"
+            : "GET /fapi/v3/account",
+        disabled: Boolean(masterUsdMFuturesResult.disabled),
+        optional: Boolean(masterUsdMFuturesResult.disabled),
+        note: masterUsdMFuturesResult.disabled
+          ? "母账户 USD-M 合约已由实例配置禁用，按 0 计入净值。"
+          : null,
+        error: shouldUseMasterPortfolio || masterUsdMFuturesResult.disabled ? null : masterUsdMFuturesResult.error
       },
       {
         key: "masterCoinMFutures",
         label: "Master COIN-M Futures",
         ok: masterCoinMFuturesResult.ok || shouldUseMasterPortfolio,
         scope: "master",
-        endpoint: shouldUseMasterPortfolio ? "GET /papi/v1/account or /papi/v2/account" : "GET /dapi/v1/account",
-        error: shouldUseMasterPortfolio ? null : masterCoinMFuturesResult.error
+        endpoint: masterCoinMFuturesResult.disabled
+          ? "disabled by MASTER_COINM_FUTURES_ENABLED"
+          : shouldUseMasterPortfolio
+            ? "GET /papi/v1/account or /papi/v2/account"
+            : "GET /dapi/v1/account",
+        disabled: Boolean(masterCoinMFuturesResult.disabled),
+        optional: Boolean(masterCoinMFuturesResult.disabled),
+        note: masterCoinMFuturesResult.disabled
+          ? "母账户 COIN-M 合约已由实例配置禁用，按 0 计入净值。"
+          : null,
+        error: shouldUseMasterPortfolio || masterCoinMFuturesResult.disabled ? null : masterCoinMFuturesResult.error
       },
       {
         key: "masterPortfolioMargin",
@@ -1719,8 +1753,8 @@ async function buildSummary(forceRefresh = false) {
       "GET /sapi/v1/capital/withdraw/history",
       "GET /sapi/v1/pay/transactions",
       "GET /sapi/v1/margin/account",
-      "GET /fapi/v3/account",
-      "GET /dapi/v1/account",
+      ...(config.masterUsdMFuturesEnabled ? ["GET /fapi/v3/account"] : []),
+      ...(config.masterCoinMFuturesEnabled ? ["GET /dapi/v1/account"] : []),
       "GET /papi/v1/account",
       "GET /papi/v2/account",
       "GET /sapi/v1/simple-earn/account",
@@ -3698,6 +3732,7 @@ async function captureSnapshot({ force = false } = {}) {
         key: item.key,
         label: item.label,
         ok: item.ok,
+        disabled: Boolean(item.disabled),
         optional: Boolean(item.optional),
         usedForEquity: Boolean(item.usedForEquity),
         error: item.error || null
@@ -6518,7 +6553,9 @@ async function handleApi(req, res, pathname, requestUrl) {
       baseUrl: config.baseUrl,
       cacheTtlMs: config.cacheTtlMs,
       features: {
-        manualAccountsEnabled: manualAccountsEnabled()
+        manualAccountsEnabled: manualAccountsEnabled(),
+        masterUsdMFuturesEnabled: config.masterUsdMFuturesEnabled,
+        masterCoinMFuturesEnabled: config.masterCoinMFuturesEnabled
       },
       docs: {
         spotSummary:

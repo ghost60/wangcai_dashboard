@@ -2832,6 +2832,12 @@ body.quietPet .wangcaiRecall {
   background: #f8fafc;
 }
 
+.coverageItem.disabled {
+  border-color: rgba(99, 112, 131, 0.14);
+  background: #f3f4f6;
+  opacity: 0.82;
+}
+
 .coverageItem strong,
 .coverageItem small {
   display: block;

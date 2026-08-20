@@ -2207,10 +2207,11 @@ function coverageGroupHtml(title, description, items) {
 }
 
 function coverageItemHtml(item) {
+  const disabled = Boolean(item.disabled);
   const optionalMiss = item.optional && !item.ok;
-  const status = item.ok ? (item.usedForEquity ? "使用中" : "可用") : optionalMiss ? "可选" : "失败";
-  const badgeClass = item.ok ? (item.usedForEquity ? "info" : "") : optionalMiss ? "muted" : "danger";
-  const itemClass = item.ok ? "" : optionalMiss ? "optional" : "failed";
+  const status = disabled ? "已禁用" : item.ok ? (item.usedForEquity ? "使用中" : "可用") : optionalMiss ? "可选" : "失败";
+  const badgeClass = disabled ? "muted" : item.ok ? (item.usedForEquity ? "info" : "") : optionalMiss ? "muted" : "danger";
+  const itemClass = disabled ? "disabled" : item.ok ? "" : optionalMiss ? "optional" : "failed";
   const errorText = item.error ? `接口返回：${item.error.code || "ERROR"} ${item.error.message || ""}` : "";
   const noteText = item.note || coverageItemNote(item);
   return `
@@ -4696,8 +4697,10 @@ function renderError(error) {
 }
 
 function coverageText(coverage = []) {
-  const ok = coverage.filter((item) => item.ok).length;
-  return `${ok}/${coverage.length} data sources`;
+  const active = coverage.filter((item) => !item.disabled);
+  const ok = active.filter((item) => item.ok).length;
+  const disabled = coverage.length - active.length;
+  return `${ok}/${active.length} data sources${disabled ? ` · ${disabled} 已禁用` : ""}`;
 }
 
 function signedPercent(value) {
