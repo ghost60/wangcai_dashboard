@@ -76,6 +76,10 @@
               <div class="marketQuote empty">等待行情</div>
             </div>
           </article>
+          <article class="metric winLossMetric">
+            <span>盈亏天数（全部时间）</span>
+            <div id="winLossChart" class="winLossChart" role="img" aria-label="盈利天数与亏损天数"></div>
+          </article>
         </section>
 
         <section class="portfolioPulse" aria-label="收益状态">
@@ -216,6 +220,16 @@
             <div id="chartTooltip" class="chartTooltip hidden"></div>
           </div>
           <div id="tagSeriesControls" class="tagSeriesControls" aria-label="Tag 资金曲线选择"></div>
+          <div class="sectionHead detailChartHead dailyPnlHead">
+            <div>
+              <h2>每日盈亏</h2>
+              <p>按单位净值日环比计算，正值盈利、负值亏损；与上方资金曲线共用时间范围。</p>
+            </div>
+          </div>
+          <div class="chartWrap">
+            <div id="dailyPnlChart" class="chart dailyPnlChart" role="img" aria-label="每日盈亏"></div>
+            <div id="dailyPnlTooltip" class="chartTooltip hidden"></div>
+          </div>
         </section>
 
         <section class="panel">

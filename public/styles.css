@@ -317,7 +317,7 @@ h2 {
 
 .metrics {
   display: grid;
-  grid-template-columns: minmax(260px, 1.4fr) repeat(3, minmax(180px, 1fr));
+  grid-template-columns: minmax(260px, 1.4fr) repeat(4, minmax(160px, 1fr));
   gap: 14px;
   margin-bottom: 14px;
 }
@@ -1968,6 +1968,74 @@ h2 {
   right: 16px;
 }
 
+.winLossMetric {
+  display: flex;
+  flex-direction: column;
+  min-height: 150px;
+}
+
+.winLossChart {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 0;
+}
+
+.winLossSvg {
+  width: 110px;
+  height: 88px;
+}
+
+.winLossSlice {
+  fill: none;
+  stroke-width: 18;
+}
+
+.winLossCenterValue {
+  fill: var(--ink);
+  font-size: 22px;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+}
+
+.winLossCenterLabel {
+  fill: var(--muted);
+  font-size: 10px;
+}
+
+.winLossLegend {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px 12px;
+}
+
+.winLossLegendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.winLossLegendItem i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--legend-color);
+}
+
+.winLossLegendItem b {
+  color: var(--muted);
+  font-weight: 700;
+}
+
 .detailChartHead {
   margin-top: 6px;
   margin-bottom: 8px;
@@ -2256,6 +2324,33 @@ h2 {
 
 .volumeBar:hover {
   opacity: 1;
+}
+
+.dailyPnlChart {
+  height: 300px;
+  min-height: 260px;
+}
+
+.dailyPnlBar {
+  cursor: crosshair;
+  opacity: 0.86;
+}
+
+.dailyPnlBar:hover {
+  opacity: 1;
+}
+
+.dailyPnlBar.positive {
+  fill: var(--green);
+}
+
+.dailyPnlBar.negative {
+  fill: var(--red);
+}
+
+.dailyPnlZero {
+  stroke: #b6c2d0;
+  stroke-width: 1;
 }
 
 .exposureSvg {

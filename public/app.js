@@ -2,6 +2,7 @@ const state = {
   summary: null,
   market: null,
   performance: null,
+  winLossDays: [],
   tradingStats: null,
   positions: null,
   manualAccounts: null,
@@ -104,6 +105,9 @@ const els = {
   overallEquityChart: document.querySelector("#overallEquityChart"),
   cryptoEquityChart: document.querySelector("#cryptoEquityChart"),
   manualEquityChart: document.querySelector("#manualEquityChart"),
+  winLossChart: document.querySelector("#winLossChart"),
+  dailyPnlChart: document.querySelector("#dailyPnlChart"),
+  dailyPnlTooltip: document.querySelector("#dailyPnlTooltip"),
   overallCurveScope: document.querySelector("#overallCurveScope"),
   tradingSeriesSelect: document.querySelector("#tradingSeriesSelect"),
   tradingVolumeChart: document.querySelector("#tradingVolumeChart"),
@@ -644,6 +648,7 @@ loadSummary(false);
 loadManualAccounts();
 loadMarket();
 loadPerformance();
+loadWinLossAll();
 loadPet(false);
 updatePetRefreshMeta();
 scheduleDashboardAutoRefresh();
@@ -710,6 +715,7 @@ async function refreshDashboard(options = {}) {
       loadManualAccounts(),
       loadMarket(),
       loadPerformance({ days: state.chartDays }),
+      loadWinLossAll(),
       loadPet(force, { skipAutoSchedule: true }),
       loadTradingStats(force),
       loadResources(),
@@ -4157,6 +4163,8 @@ function resourceCard(label, value, detail) {
 function renderChart() {
   if (state.performance) syncChartDaysInput();
   renderAggregateCharts();
+  renderWinLossChart();
+  renderDailyPnlChart();
   const chart = els.equityChart;
   chart.innerHTML = "";
   if (!state.performance) {
@@ -4316,6 +4324,259 @@ function renderAggregateCharts() {
     }
     renderMultiSeriesChart(chart, [windowed], metric, title);
   });
+}
+
+function renderWinLossChart() {
+  const chart = els.winLossChart;
+  if (!chart) return;
+  chart.innerHTML = "";
+  const days = state.winLossDays || [];
+  if (days.length === 0) {
+    chart.innerHTML = '<div class="chartEmpty">等待收益数据</div>';
+    return;
+  }
+
+  const profitDays = days.filter((item) => item.change > 0).length;
+  const lossDays = days.filter((item) => item.change < 0).length;
+  const flatDays = days.length - profitDays - lossDays;
+  const decisiveDays = profitDays + lossDays;
+  const winRate = decisiveDays ? (profitDays / decisiveDays) * 100 : 0;
+
+  const slices = [
+    { label: "盈利", value: profitDays, color: "#14804a" },
+    { label: "亏损", value: lossDays, color: "#c2413d" },
+    { label: "持平", value: flatDays, color: "#7a6b5d" }
+  ].filter((slice) => slice.value > 0);
+
+  const svg = svgEl("svg", {
+    viewBox: "0 0 120 96",
+    preserveAspectRatio: "xMidYMid meet",
+    class: "winLossSvg"
+  });
+  const cx = 60;
+  const cy = 48;
+  const radius = 32;
+  const total = days.length;
+  const gap = slices.length > 1 ? 0.05 : 0;
+  let angle = -Math.PI / 2;
+  slices.forEach((slice) => {
+    const span = (slice.value / total) * Math.PI * 2;
+    const start = angle + gap / 2;
+    const end = angle + span - gap / 2;
+    if (end > start) {
+      svg.append(svgEl("path", {
+        class: "winLossSlice",
+        d: donutArcPath(cx, cy, radius, start, end),
+        stroke: slice.color
+      }));
+    }
+    angle += span;
+  });
+
+  svg.append(
+    svgText(cx, cy - 2, `${winRate.toFixed(0)}%`, "winLossCenterValue"),
+    svgText(cx, cy + 15, "胜率", "winLossCenterLabel")
+  );
+  chart.append(svg);
+
+  const legend = document.createElement("div");
+  legend.className = "winLossLegend";
+  legend.innerHTML = slices
+    .map((slice) => {
+      const pct = ((slice.value / total) * 100).toFixed(0);
+      return `
+        <span class="winLossLegendItem" style="--legend-color: ${escapeHtml(slice.color)}">
+          <i aria-hidden="true"></i>${escapeHtml(slice.label)}
+          <b>${slice.value}天 · ${pct}%</b>
+        </span>
+      `;
+    })
+    .join("");
+  chart.append(legend);
+}
+
+async function loadWinLossAll() {
+  try {
+    const response = await fetch("/api/performance?full=1&maxPoints=0", { cache: "no-store" });
+    const payload = await response.json();
+    if (!response.ok) throw payload;
+    state.winLossDays = dailyNavChanges(payload.total?.points);
+  } catch (_error) {
+    state.winLossDays = [];
+  }
+  renderWinLossChart();
+}
+
+function dailyNavChanges(points) {
+  if (!points || points.length < 2) return [];
+  const lastPerDay = new Map();
+  for (const point of points) {
+    const time = Date.parse(point.timestamp);
+    if (!Number.isFinite(time)) continue;
+    lastPerDay.set(localDayKey(time), point);
+  }
+  const days = [...lastPerDay.values()];
+  const changes = [];
+  for (let i = 1; i < days.length; i += 1) {
+    const prevNav = Number(days[i - 1].nav || 0);
+    const nav = Number(days[i].nav || 0);
+    if (!prevNav) continue;
+    changes.push({ timestamp: days[i].timestamp, change: nav - prevNav });
+  }
+  return changes;
+}
+
+function localDayKey(timestamp) {
+  const date = new Date(timestamp);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function donutArcPath(cx, cy, radius, startAngle, endAngle) {
+  const largeArc = endAngle - startAngle > Math.PI ? 1 : 0;
+  const x1 = cx + radius * Math.cos(startAngle);
+  const y1 = cy + radius * Math.sin(startAngle);
+  const x2 = cx + radius * Math.cos(endAngle);
+  const y2 = cy + radius * Math.sin(endAngle);
+  return `M ${x1.toFixed(2)} ${y1.toFixed(2)} A ${radius} ${radius} 0 ${largeArc} 1 ${x2.toFixed(2)} ${y2.toFixed(2)}`;
+}
+
+function renderDailyPnlChart() {
+  const chart = els.dailyPnlChart;
+  if (!chart) return;
+  chart.innerHTML = "";
+  if (!state.performance) {
+    chart.innerHTML = '<div class="chartEmpty">正在加载资金曲线</div>';
+    return;
+  }
+  const series = selectedSeries();
+  const bars = dailyPnlSeries(series);
+  if (!bars.length) {
+    chart.innerHTML = '<div class="chartEmpty">当前窗口内等待至少两天采样</div>';
+    return;
+  }
+
+  const rect = chart.getBoundingClientRect();
+  const width = Math.max(Math.round(rect.width), 640);
+  const height = Math.max(Math.round(rect.height), 280);
+  const padding = { top: 78, right: 28, bottom: 42, left: 92 };
+  const x0 = padding.left;
+  const plotWidth = width - padding.left - padding.right;
+  const plotHeight = height - padding.top - padding.bottom;
+  const halfPlot = plotHeight / 2;
+  const yZero = padding.top + halfPlot;
+  const maxAbs = Math.max(0.01, ...bars.map((bar) => Math.abs(bar.pct)));
+  const yMax = maxAbs * 1.18;
+
+  const svg = svgEl("svg", {
+    viewBox: `0 0 ${width} ${height}`,
+    preserveAspectRatio: "none",
+    class: "chartSvg"
+  });
+
+  for (let i = 0; i <= 2; i += 1) {
+    const y = padding.top + (plotHeight * i) / 2;
+    const value = yMax - yMax * i;
+    svg.append(
+      svgEl("line", { class: "chartGrid", x1: x0, y1: y, x2: x0 + plotWidth, y2: y }),
+      svgText(x0 - 12, y + 4, `${value >= 0 ? "+" : ""}${value.toFixed(1)}%`, "chartAxis yAxis")
+    );
+  }
+  svg.append(svgEl("line", { class: "dailyPnlZero", x1: x0, y1: yZero, x2: x0 + plotWidth, y2: yZero }));
+
+  const slot = plotWidth / bars.length;
+  const barGap = Math.min(8, Math.max(1, slot * 0.22));
+  const barWidth = Math.max(1, slot - barGap);
+  const mapped = bars.map((bar, index) => {
+    const x = x0 + (plotWidth * index) / bars.length + barGap / 2;
+    const half = (Math.abs(bar.pct) / yMax) * halfPlot;
+    return {
+      ...bar,
+      x,
+      y: bar.pct >= 0 ? yZero - half : yZero,
+      width: barWidth,
+      height: Math.max(half, bar.pct === 0 ? 0 : 1.5),
+      value: bar.pct
+    };
+  });
+
+  buildXAxisTicks(mapped.map((bar) => ({ ...bar, x: bar.x + bar.width / 2 })), plotWidth).forEach((tick) => {
+    svg.append(svgText(tick.x, height - 14, shortDate(tick.point.timestamp), `chartAxis xAxis ${tick.anchor}`));
+  });
+
+  mapped.forEach((bar) => {
+    const rect = svgEl("rect", {
+      class: `dailyPnlBar ${bar.pct >= 0 ? "positive" : "negative"}`,
+      x: bar.x,
+      y: bar.y,
+      width: bar.width,
+      height: bar.height,
+      rx: 3
+    });
+    rect.addEventListener("mouseenter", (event) => showDailyPnlTooltip(event, series, bar));
+    rect.addEventListener("mousemove", (event) => showDailyPnlTooltip(event, series, bar));
+    rect.addEventListener("mouseleave", hideDailyPnlTooltip);
+    svg.append(rect);
+  });
+
+  chart.append(buildDailyPnlHeader(series, bars), svg);
+}
+
+function dailyPnlSeries(series) {
+  if (!series?.points?.length) return [];
+  const isDateRange = state.chartDateFrom && state.chartDateTo;
+  const filtered = isDateRange
+    ? windowedPointsByDateRange(series.points, state.chartDateFrom, state.chartDateTo)
+    : windowedPoints(series.points, state.chartDays);
+  const lastPerDay = new Map();
+  for (const point of filtered) {
+    const time = Date.parse(point.timestamp);
+    if (!Number.isFinite(time)) continue;
+    lastPerDay.set(localDayKey(time), point);
+  }
+  const days = [...lastPerDay.values()];
+  const bars = [];
+  for (let i = 1; i < days.length; i += 1) {
+    const prevNav = Number(days[i - 1].nav || 0);
+    const nav = Number(days[i].nav || 0);
+    if (!prevNav) continue;
+    bars.push({ timestamp: days[i].timestamp, pct: ((nav - prevNav) / prevNav) * 100 });
+  }
+  return bars;
+}
+
+function buildDailyPnlHeader(series, bars) {
+  const header = document.createElement("div");
+  header.className = "chartHeader";
+  const upDays = bars.filter((bar) => bar.pct > 0).length;
+  const downDays = bars.filter((bar) => bar.pct < 0).length;
+  header.innerHTML = `
+    <div class="chartTitleBlock">
+      <strong title="${escapeHtml(series.label)}">${escapeHtml(series.label)} 每日盈亏</strong>
+      <span>${chartRangeLabel()} · 单位净值日环比</span>
+    </div>
+    <div class="chartReturn ${upDays >= downDays ? "positive" : "negative"}">${upDays}涨 / ${downDays}跌</div>
+  `;
+  return header;
+}
+
+function showDailyPnlTooltip(event, series, bar) {
+  const tooltip = els.dailyPnlTooltip;
+  if (!tooltip) return;
+  tooltip.innerHTML = `
+    <strong>${escapeHtml(series.label)}</strong>
+    <span>${escapeHtml(new Date(bar.timestamp).toLocaleDateString())}</span>
+    <div>每日盈亏：${escapeHtml(signedPercent(bar.pct))}</div>
+  `;
+  tooltip.classList.remove("hidden");
+  const wrap = event.currentTarget.closest(".chartWrap").getBoundingClientRect();
+  const x = event.clientX - wrap.left + 12;
+  const y = event.clientY - wrap.top - 12;
+  tooltip.style.left = `${Math.min(x, wrap.width - 220)}px`;
+  tooltip.style.top = `${Math.max(y, 10)}px`;
+}
+
+function hideDailyPnlTooltip() {
+  if (els.dailyPnlTooltip) els.dailyPnlTooltip.classList.add("hidden");
 }
 
 function renderMultiSeriesChart(chart, seriesList, metric, title = "Tag 资金曲线") {
